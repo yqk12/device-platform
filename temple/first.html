@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>设备数据监控平台</title>
+</head>
+<body>
+    <h3>设备数据平台</h3>
+    <p>
+        设备 <span id = "d">-</span>
+        状态 <span id = "o">-</span>
+        累计 <span id = "c">-</span>
+        时间 <span id = "t">-</span>
+    </p>
+    <table border ="1" id = "tb">
+        <tr>
+            <th>
+                ID
+            </th>
+            <th>
+                设备
+            </th>
+            <th>
+                时间
+            </th>
+        </tr>
+    </table>
+    <script>
+        const $ = id => document.getElementById(id) ;
+        async function refresh() {
+            const s = await(await fetch("/api/status")).json() ;
+            $("d").textContent = s.device ;
+            $("o").textContent = s.online ? "在线" : "离线" ;
+            $("c").textContent = s.count ;
+            $("t").textContent = s.server_time ;
+
+            const h = await(await fetch("/api/history?limit=10")).json();
+            $("tb").innerHTML = '<tr><th>ID</th><th>设备</th><th>时间</th></tr>'
+                                +h.items.map(i => `<tr><td>${i.id}</td><td>${i.devices}</td><td>${i.ts}</td></tr>`).join("") ;
+
+        }
+        refresh() ;
+        setInterval(refresh , 2000 ) ;
+    </script>
+</body>
+</html>

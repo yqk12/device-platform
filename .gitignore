@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# C 编译产物
+*.exe
+*.o
+
+# IDE
+.idea/
+
+# 数据库与日志
+*.db
+*.log

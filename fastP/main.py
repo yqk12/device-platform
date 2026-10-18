@@ -1,84 +1,75 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
-import uvicorn
 from pathlib import Path
-from fastapi import FastAPI
-import sqlite3
+
+import uvicorn
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
+from httpx2 import query
+
+import db
 
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title="Device Plastform")
-
-DB = BASE / "data.db"
 HTML_FILE = BASE.parent / "temple" / "first.html"
 
-def init_db():
-    conn = sqlite3.connect(DB)
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS status_log(
-     id INTEGER PRIMARY KEY AUTOINCREMENT ,
-     devices TEXT NOT NULL ,
-     ts TEXT NOT NULL 
-    )
-    """)
-    conn.commit()
-    conn.close()
+@asynccontextmanager
+async def lifespan(app : FastAPI) :
+    db.init_db()
+    yield
 
-init_db()
+app = FastAPI(title="Device Platform" , version="0.2.0" , lifespan=lifespan)
 
 @app.get("/")
-def index():
+def index() :
     return {
-        "serives" : "device-platform" ,
-        "history" : "/api/history" ,
-        "docs" : "/docs"
+        "service": "device-platform",
+        "version": app.version,
+        "history": "/api/history",
+        "docs": "/docs",
+    }
+
+@app.post("/api/report")
+def report(device : str = Query(... , min_length = 1 , max_length=32 , description="设备名") ,
+           value: float | None = Query(None, ge=-100, le=1000, description="测量值（如温度）"),
+           ts : str | None = Query(None, max_length=32, description="时间戳，可省略") ,
+           ):
+    ts_ = ts or datetime.now().isoformat(timespec="seconds")
+    row_id = db.insert_report(device , value , ts_)
+    return {
+        "ok" : True ,
+        "id" : row_id ,
+        "device" : device ,
+        "value" : value ,
+        "ts" : ts_
     }
 
 @app.get("/api/status")
 def get_status():
-         conn = sqlite3.connect(DB)
-         row = conn.execute(
-             "select devices , ts from  status_log order by id **desc** limit 1"
-         ).fetchone()
-
-         count = conn.execute(
-             "select count(*) from status_log"
-                              ).fetchone()[0]
-         conn.close()
-         if row is None :
-             return {"device" : "None" , "online" : False , "count" : 0 , "server_time" : None}
-         return {"device" : row[0] , "online" : True , 	"count" : count , "server_time" : row[1]}
-
-@app.post("/api/report")
-def report(device : str , ts : str |  None = None) :
-    ts = ts or datetime.now().isoformat(timespec="seconds")
-    conn = sqlite3.connect(DB)
-    conn.execute("insert into status_log (devices , ts) values (?,?)" , (device ,ts))
-    conn.commit()
-    conn.close()
+    row = db.latest()
+    count = db.count_all()
+    if row is None:
+        return {"device": None, "value": None, "online": False,
+                "count": 0, "server_time": None}
     return {
-        "ok" : True,
-        "device" : device ,
-        "ts" : ts
+        "device": row["devices"],
+        "value": row["value"],
+        "online": True,
+        "count": count,
+        "server_time": row["ts"],
     }
+
 @app.get("/api/history")
-def get_history(limit : int = 10):
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "select id , devices , ts from status_log order by id desc limit ?" ,(limit,)
-    ).fetchall()
-    conn.close()
+def get_history(limit: int = Query(10, ge=1, le=100, description="返回条数 1~100")):
+    items = db.recent(limit)
     return {
-        "count" : len(rows) ,
-        "items" : [dict(r) for r in rows]
+        "count" : len(items) ,
+        "items" : items
     }
 
-@app.get("/panel" , response_class=HTMLResponse)
+@app.get("/panel", response_class=HTMLResponse)
 def panel():
     return HTML_FILE.read_text(encoding="utf-8")
 
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8080, reload=True)
-
-
-
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
